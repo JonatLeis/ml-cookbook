@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tiny Experiments · Observer</title>
+<style>
+:root{
+  color-scheme:dark;
+  font:15px system-ui,sans-serif;
+  color:#e4eaf5;
+  background:#0b101a
+}
+*{
+  box-sizing:border-box
+}
+body{
+  max-width:1400px;
+  margin:0 auto;
+  padding:32px
+}
+header{
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  align-items:center
+}
+h1{
+  font-size:28px;
+  letter-spacing:-1px;
+  margin:6px 0
+}
+h2{
+  font-size:16px;
+  margin:0 0 16px
+}
+small,.muted{
+  color:#92a1b7
+}
+.eyebrow{
+  font:11px monospace;
+  letter-spacing:2px;
+  color:#7dd3fc
+}
+.pill{
+  padding:8px 12px;
+  border:1px solid #334155;
+  border-radius:30px;
+  font:12px monospace
+}
+.ok{
+  color:#86efac
+}
+.bad{
+  color:#fda4af
+}
+.cards{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:16px;
+  margin:25px 0
+}
+.card,section{
+  background:#121b2b;
+  border:1px solid #273449;
+  border-radius:12px;
+  padding:20px
+}
+.number{
+  font-size:28px;
+  margin-top:8px;
+  font-variant-numeric:tabular-nums
+}
+.grid{
+  display:grid;
+  grid-template-columns:3fr 2fr;
+  gap:18px
+}
+section{
+  margin-bottom:18px;
+  min-width:0
+}
+select,input,button{
+  background:#0b1321;
+  border:1px solid #3a4960;
+  color:inherit;
+  padding:9px;
+  border-radius:6px;
+  font:inherit
+}
+select{
+  max-width:100%;
+  width:100%;
+  font:12px monospace
+}
+input{
+  width:100%;
+  margin-bottom:12px
+}
+table{
+  border-collapse:collapse;
+  width:100%;
+  font-size:13px;
+  text-align:left
+}
+th{
+  font-weight:500;
+  color:#92a1b7
+}
+td,th{
+  padding:11px 8px;
+  border-bottom:1px solid #29364b;
+  vertical-align:top
+}
+td{
+  overflow-wrap:anywhere
+}
+code,pre{
+  font:12px ui-monospace,monospace
+}
+pre{
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  max-height:420px;
+  overflow:auto;
+  background:#0b1321;
+  padding:15px;
+  border-radius:6px
+}
+svg{
+  width:100%;
+  height:240px;
+  margin-top:18px
+}
+#notice{
+  margin:16px 0;
+  color:#fda4af;
+  overflow-wrap:anywhere
+}
+.scroll{
+  max-height:400px;
+  overflow:auto
+}
+.chart-labels{
+  display:flex;
+  justify-content:space-between;
+  color:#92a1b7;
+  font:11px monospace
+}
+.metrics td:first-child{
+  font:11px monospace
+}
+.metric-name{
+  color:#b0dfff
+}
+details{
+  margin-bottom:10px
+}
+summary{
+  cursor:pointer;
+  color:#a5d7ff
+}
+a{
+  color:#7dd3fc
+}
+@media(max-width:850px){
+  body{
+    padding:16px
+  }
+  .grid{
+    grid-template-columns:1fr
+  }
+  .cards{
+    grid-template-columns:1fr 1fr
+  }
+  header{
+    align-items:flex-start;
+    flex-direction:column
+  }
+}
+</style>
+<header>
+<div>
+<div class="eyebrow">TINY EXPERIMENTS / OBSERVABILITY</div>
+<h1>Live experiment monitor</h1>
+<small id="target">Connecting…</small>
+</div>
+<span class="pill" id="connection">WAITING</span>
+</header>
+<div id="notice" role="status">
+</div>
+<div class="cards">
+<div class="card">
+<small>SUITE STATUS</small>
+<div id="suite" class="number">—</div>
+</div>
+<div class="card">
+<small>COMPLETED JOBS</small>
+<div id="jobs" class="number">0 / 0</div>
+</div>
+<div class="card">
+<small>FAILED TEST OUTCOMES</small>
+<div id="failed" class="number">—</div>
+</div>
+<div class="card">
+<small>LAST METRICS SCRAPE</small>
+<div id="last" style="margin-top:14px">—</div>
+</div>
+</div>
+<div class="grid">
+<div>
+<section>
+<h2>Metric history</h2>
+<select id="series" aria-label="Metric time series">
+</select>
+<svg id="chart" viewBox="0 0 800 240" role="img" aria-label="Selected metric over time">
+</svg>
+<div class="chart-labels">
+<span id="from">No samples yet</span>
+<span id="range">
+</span>
+<span id="to">
+</span>
+</div>
+<small>Gaps indicate failed scrapes. History is bounded; labels identify individual ranks and tests.</small>
+</section>
+<section>
+<h2>Experiments</h2>
+<table>
+<thead>
+<tr>
+<th>Experiment</th>
+<th>Status</th>
+<th>Ranks</th>
+<th>Exit</th>
+</tr>
+</thead>
+<tbody id="experiments">
+</tbody>
+</table>
+</section>
+<section>
+<h2>Failure context &amp; reproduction settings</h2>
+<div id="failures" class="muted">No results received yet.</div>
+</section>
+</div>
+<div>
+<section>
+<h2>Collected metrics</h2>
+<input id="filter" placeholder="Filter metric name, experiment, rank or test…" aria-label="Filter metrics">
+<div class="scroll">
+<table class="metrics">
+<thead>
+<tr>
+<th>Series</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody id="metrics">
+</tbody>
+</table>
+</div>
+<small id="count">
+</small>
+</section>
+<section>
+<details>
+<summary>Latest controller report</summary>
+<pre id="raw">Waiting for controller…</pre>
+</details>
+<small>The observer runs independently. It reconnects when the controller returns and keeps the last collected state.</small>
+</section>
+</div>
+</div>
+<script>
+const element = (id) => document.getElementById(id);
+let state = null;
+let busy = false;
+
+function node(tag, text, className) {
+  const result = document.createElement(tag);
+  if (text !== undefined) result.textContent = text;
+  if (className) result.className = className;
+  return result;
+}
+
+function paintMetrics() {
+  if (!state) return;
+  const filter = element('filter').value.toLowerCase();
+  const entries = Object.entries(state.samples).filter(([key]) => key.toLowerCase().includes(filter));
+  element('metrics').replaceChildren();
+  for (const [key, sample] of entries.slice(0, 200)) {
+    const row = node('tr');
+    row.append(node('td', key, 'metric-name'), node('td', sample.value === null ? 'nonfinite' : String(sample.value)));
+    element('metrics').append(row);
+  }
+  element('count').textContent = `${entries.length} matching series · showing up to 200`;
+}
+
+function paintChart(points) {
+  const chart = element('chart');
+  chart.replaceChildren();
+  const valid = points.filter((point) => point.value !== null);
+  if (!valid.length) {
+    element('from').textContent = 'No samples for this series';
+    element('to').textContent = '';
+    element('range').textContent = '';
+    return;
+  }
+  const low = Math.min(...valid.map((point) => point.value));
+  const high = Math.max(...valid.map((point) => point.value));
+  const start = points[0].time;
+  const end = points.at(-1).time;
+
+  function shape(tag, attributes) {
+    const result = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attributes)) result.setAttribute(key, value);
+    chart.append(result);
+  }
+
+  for (let y = 25; y <= 215; y += 47.5) {
+    shape('line', { x1: 12, x2: 788, y1: y, y2: y, stroke: '#29364b' });
+  }
+  let path = '';
+  let connected = false;
+  for (const point of points) {
+    if (point.value === null) {
+      connected = false;
+      continue;
+    }
+    const x = 12 + 776 * (point.time - start) / Math.max(end - start, 1);
+    const y = 215 - 190 * (point.value - low) / Math.max(high - low, 1);
+    path += `${connected ? 'L' : 'M'}${x},${y} `;
+    shape('circle', { cx: x, cy: y, r: 2, fill: '#7dd3fc' });
+    connected = true;
+  }
+  shape('path', { d: path, fill: 'none', stroke: '#7dd3fc', 'stroke-width': 2.5 });
+  element('from').textContent = new Date(start * 1000).toLocaleTimeString();
+  element('to').textContent = new Date(end * 1000).toLocaleTimeString();
+  element('range').textContent = `range ${low} – ${high}`;
+}
+
+function paintJobs(results) {
+  const entries = Object.entries(results?.experiments || {});
+  const terminal = ['PASS', 'FAIL', 'ERROR'];
+  element('suite').textContent = results?.status || '—';
+  element('jobs').textContent = `${entries.filter(([, job]) => terminal.includes(job.status)).length} / ${entries.length}`;
+  element('experiments').replaceChildren();
+  element('failures').replaceChildren();
+  for (const [name, job] of entries) {
+    const failed = ['FAIL', 'ERROR'].includes(job.status);
+    const row = node('tr');
+    row.append(
+      node('td', name),
+      node('td', job.status, failed ? 'bad' : job.status === 'PASS' ? 'ok' : ''),
+      node('td', String(Object.keys(job.ranks).length)),
+      node('td', String(job.exit_code ?? '—')),
+    );
+    element('experiments').append(row);
+    if (failed) {
+      const detail = node('details');
+      detail.append(node('summary', `${name} · ${job.status}`), node('pre', JSON.stringify(job, null, 2)));
+      element('failures').append(detail);
+    }
+  }
+  if (!element('failures').children.length) {
+    element('failures').textContent = 'No failed jobs in the latest report.';
+  }
+  element('raw').textContent = results ? JSON.stringify(results, null, 2) : 'Waiting for controller…';
+}
+
+async function refresh() {
+  if (busy) return;
+  busy = true;
+  try {
+    const selection = element('series').value;
+    const query = selection ? '?series=' + encodeURIComponent(selection) : '';
+    const response = await fetch('/api/state' + query);
+    if (!response.ok) throw Error('Observer API returned ' + response.status);
+    state = await response.json();
+    element('target').textContent = state.target;
+    element('connection').textContent = state.error ? 'STALE / RETRYING' : state.last_success ? 'COLLECTING' : 'WAITING';
+    element('connection').className = 'pill ' + (state.error ? 'bad' : 'ok');
+    element('notice').textContent = state.error || '';
+    element('last').textContent = state.last_success ? new Date(state.last_success).toLocaleTimeString() : '—';
+    element('failed').textContent = Object.values(state.samples)
+      .filter((sample) => sample.name === 'tiny_experiments_failed_tests')
+      .reduce((sum, sample) => sum + (sample.value || 0), 0);
+
+    const options = Object.keys(state.samples);
+    if (JSON.stringify(options) !== element('series').dataset.options) {
+      element('series').replaceChildren(...options.map((key) => {
+        const option = node('option', key);
+        option.value = key;
+        return option;
+      }));
+      element('series').dataset.options = JSON.stringify(options);
+    }
+    element('series').value = options.includes(selection) ? selection : state.series || '';
+    paintChart(state.history);
+    paintJobs(state.results);
+    paintMetrics();
+  } catch (error) {
+    element('connection').textContent = 'DASHBOARD DISCONNECTED';
+    element('connection').className = 'pill bad';
+    element('notice').textContent = String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+element('filter').addEventListener('input', paintMetrics);
+element('series').addEventListener('change', refresh);
+refresh();
+setInterval(refresh, 1000);
+</script>
+</html>

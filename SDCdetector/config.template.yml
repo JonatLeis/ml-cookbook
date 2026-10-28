@@ -1,0 +1,798 @@
+# Complete configuration template for SDC suite -- this template is AI generated, take care!
+# ===================================================
+# Usage: copy this file to config.yml, enable the experiments you want to run,
+# and remove any entries or fields you do not need.
+# This template does not modify the existing config.yml.
+#
+# Validate without running GPU workloads:
+#   python src/controller.py --config config.template.yml --check-config
+# Show individual fields and current preset defaults:
+#   python src/controller.py --describe indexing_quick
+# Launch on the GPU nodes:
+#   sbatch run-exp.sbatch                  # reads config.yml by default
+#   CONFIG_FILE=/absolute/config.template.yml sbatch run-exp.sbatch
+#
+# IMPORTANT RULES
+# - All accepted YAML fields are listed below. Unknown fields and duplicate keys
+#   are rejected. Use spaces for indentation.
+# - Integers: 1, 8, 65536; NOT strings such as "8" or decimal numbers such as 8.0.
+# - Booleans: true or false, without quotation marks.
+# - Decimal numbers must be finite: e.g. 0.001 or 1.0e-5, NOT NaN/Inf.
+#   Include a decimal point in scientific notation (PyYAML).
+# - Lists: [value1, value2]; shapes: [[rows, columns], ...].
+# - Do not use null; omit optional fields instead.
+# - Omitted settings fields retain the values from the EXPERIMENT preset.
+#   The active settings values below match those preset defaults exactly.
+# - Empty run/environment mappings {} are allowed. Empty dtype/shape lists
+#   are NOT allowed for the corresponding experiments.
+# - Experiment parameter precedence: module preset < settings.
+#   Shared run parameter precedence: CLI default < YAML controller < explicit
+#   CLI flags < experiments.NAME.run for seed/threads/repeats/job_timeout.
+# - Positional experiment names explicitly select a subset, including entries
+#   with enabled: false. Otherwise, enabled: true entries run in file order.
+# - --check-config checks the structure/types of the selected experiments.
+#   Some value ranges and dependencies are checked only inside the experiment.
+#   Valid YAML does not guarantee kernel support or sufficient free VRAM.
+# - CUDA screening: one rank per visible GPU, distinct GPU UUIDs, and the same
+#   GPU model for replica comparisons. The controller supports a single node.
+# - Slurm resources, the container image and mounts belong in the sbatch script,
+#   NOT in this file. Observer options are not YAML configuration fields either.
+#
+# DTYPE NOTATION
+# - Canonical names: float16, bfloat16, float32, float64, int32, int64.
+# - An optional prefix is accepted: torch.float32, etc.
+# - PyTorch aliases for the same types are also resolved, e.g.
+#   half=float16, float=float32, double=float64, int=int32, long=int64.
+# - Each dtypes field documents its allowed subset.
+#   Not every dtype known to PyTorch is suitable for every experiment.
+# - Integer ranges/shapes do not have a finite list of options: the comments
+#   below specify bounds, units and dependencies rather than listing all numbers.
+
+# Required field. The only currently supported value is integer 1.
+version: 1
+
+# Optional section; each individual key is optional.
+controller:
+  # Choices: zero | minimum | verbose. CLI default: minimum.
+  # zero: results in memory/API; no controller log/report files.
+  # minimum: also writes shared report.json + events.jsonl files.
+  # verbose: also writes detailed traces, launcher output and tensor snapshots.
+  # Explicitly enabled Inspector metric files and Slurm logs are independent of this.
+  logging: minimum
+
+  # Nonempty path string. Required for minimum/verbose; optional for zero.
+  # Must be new: existing directories are never overwritten.
+  # Relative to THIS YAML file. No default if neither YAML nor CLI specifies a path.
+  # run-exp.sbatch overrides this with the job-specific /results/suite path.
+  output: runs/suite
+
+  # Choices: cpu | cuda; default: cuda.
+  # The controller allows cpu only with nproc_per_node: 1, e.g. for transformer.
+  # The GPU/replica tests below require cuda and multiple ranks.
+  device: cuda
+
+  # Integer >= 1; default: 8. Must fit the Slurm GPU allocation.
+  # Most screening tests require >= 2; transformer_tp requires an even count >= 4.
+  # This value is shared by all selected experiments.
+  nproc_per_node: 8
+
+  # Shared RNG seed, integer 0..9223372036854775807; default: 12345.
+  seed: 12345
+  # PyTorch CPU threads per rank, integer >= 1; default: 1.
+  threads: 1
+  # Independent repetitions of the entire experiment, integer >= 1; default: 2.
+  # Different from settings.iterations/steps. A value of 1 skips repeat comparison.
+  repeats: 2
+  # Time limit per experiment job in seconds, finite number >= 0; default: 0 = disabled.
+  # Includes worker startup and all repetitions, but NOT api_linger.
+  job_timeout: 0
+
+  # Nonempty bind-address string; CLI default: "127.0.0.1".
+  # "127.0.0.1": local access/SSH tunnel only. "0.0.0.0": all IPv4 interfaces.
+  # A specific IPv4 address/resolvable hostname is also accepted; it must be locally bindable.
+  # Template value: "0.0.0.0", allowing Prometheus to scrape the GPU node directly.
+  api_host: "0.0.0.0"
+  # TCP port, integer 0..65535; default: 9100. 0 = automatically assigned free port,
+  # primarily for tests; choose a fixed available port for known scrape targets.
+  # One port for the entire suite, NOT one port per rank/experiment.
+  api_port: 9100
+  # Keep the API available after suite completion, seconds >= 0; default: 30.
+  # 0 = exit immediately. Choose a value longer than the scrape interval.
+  api_linger: 30
+
+# Optional OPEN mapping of environment variables for child jobs; default: {}.
+# Any names matching [A-Za-z_][A-Za-z0-9_]*, except the reserved EXPERIMENT_* prefix.
+# Values: string, integer, number or boolean; no lists/mappings/null.
+# Strings are passed unchanged, booleans as "1"/"0", and numbers as text.
+# Strings are the clearest choice for environment values. The meaning/validity
+# of arbitrary variables is defined by the external tool, not by our YAML schema.
+# There is therefore no exhaustive list of ALL possible environment variables here.
+# Precedence: inherited environment < this mapping < experiment.environment.
+# Replace {} with your own mapping; examples (uncomment only as needed):
+# environment:
+#   PROFILER_ACTIVE: "0"                 # "0" | "1"; Nsight runs only in verbose mode.
+#   PROFILE: "/profiles"                 # Writable path inside the container.
+#   NCCL_INSPECTOR_ENABLE: "0"           # "0" | "1"; use "1" for allreduce NVLS evidence.
+#   NCCL_INSPECTOR_DUMP_DIR: "/dumps"     # Writable dump path inside the container.
+#   NCCL_INSPECTOR_DUMP_THREAD_ENABLE: "1" # "0" | "1"; otherwise derived from ENABLE.
+#   NCCL_INSPECTOR_PROM_DUMP: "1"        # "0" | "1"; otherwise derived from ENABLE.
+#   NCCL_INSPECTOR_DUMP_VERBOSE: "0"     # "0" | "1"; otherwise "1" only in verbose mode.
+#   NCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS: "30000000" # Positive microseconds.
+#   NCCL_INSPECTOR_DUMP_MIN_SIZE_BYTES: "0" # Nonnegative size threshold in bytes.
+#   NCCL_INSPECTOR_REQUIRE_KERNEL_TIMING: "0" # "0" | "1".
+#   NCCL_INSPECTOR_OTEL_EXPORT: "0"      # "0" | "1".
+#   NCCL_PROFILER_PLUGIN: "/opt/nccl-inspector/libnccl-profiler-inspector.so" # Library path.
+#   NCCL_NVLS_ENABLE: "1"               # "0" = disabled, "1"/"2" = enabled; fallback depends on the version.
+#   NCCL_ALGO: "allreduce:NVLS"          # NCCL algorithm selection; version-dependent.
+#   NCCL_DEBUG: "WARN"                  # VERSION | WARN | INFO | TRACE; ATTN since NCCL 2.32.
+#   CUBLAS_WORKSPACE_CONFIG: ":4096:8"   # The CUDA runner accepts :4096:8 | :16:8.
+# Set external tool options only if supported by the version you use.
+# NCCL reference: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html
+environment: {}
+
+# All currently available experiment modules. Only elementwise_quick is enabled.
+# enabled: true | false (default when omitted: true).
+# run: optional; ONLY seed, threads, repeats, job_timeout, as documented above.
+# settings: optional; ONLY the fields listed below for each experiment.
+# environment: optional; open mapping with the same rules as above.
+# run: {} and environment: {} inherit the shared values unchanged.
+experiments:
+
+  # ----------------------------------------------------------------------
+  # allreduce
+  # AllReduce SUM; requires CUDA, >= 2 ranks and NCCL/NVLS support.
+  # NVLS evidence is read from Inspector dumps: set NCCL_INSPECTOR_ENABLE="1".
+  # Dtypes are fixed in code: float16, bfloat16, float32, float64, int32, int64.
+  # There is NO settings.dtypes field. The rank sum world_size*(world_size+1)/2 must
+  # be exactly representable in every tested dtype; BF16 limits this sum to 256.
+  allreduce:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of tensor elements (not bytes).
+      # Preset default: 16777216
+      numel: 16777216
+      # Integer >= 0; unmeasured warm-up collectives per dtype.
+      # Preset default: 5
+      warmup: 5
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 20
+      iterations: 20
+
+  # ----------------------------------------------------------------------
+  # data_transfers
+  # Bytewise transfers; CUDA, >= 2 ranks. Payload/dtype is fixed in code;
+  # no dtypes or shapes option. sizes controls transfer sizes.
+  data_transfers:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Nonempty list of unique integers >= 32; unit: BYTES.
+      # Preset default: [4096, 1048576, 16777216]
+      sizes: [4096, 1048576, 16777216]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 2
+      iterations: 2
+
+  # ----------------------------------------------------------------------
+  # data_transfers_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # Bytewise transfers; CUDA, >= 2 ranks. Payload/dtype is fixed in code;
+  # no dtypes or shapes option. sizes controls transfer sizes.
+  data_transfers_quick:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Nonempty list of unique integers >= 32; unit: BYTES.
+      # Preset default: [262144]
+      sizes: [262144]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+
+  # ----------------------------------------------------------------------
+  # elementwise
+  # Elementwise floating-point/integer operations; CUDA, >= 2 ranks.
+  # numel determines the one-dimensional tensor size; there is no shapes field.
+  elementwise:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of tensor elements (not bytes).
+      # Preset default: 1048576
+      numel: 1048576
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 3
+      iterations: 3
+      # Integer >= 1; length of the elementwise operation chain.
+      # Preset default: 4
+      chain_steps: 4
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64.
+      # Preset default: ["float32", "float16", "bfloat16", "float64"]
+      dtypes: ["float32", "float16", "bfloat16", "float64"]
+      # Nonempty list without duplicates; choices: int32 | int64.
+      # Preset default: ["int32", "int64"]
+      integer_dtypes: ["int32", "int64"]
+
+  # ----------------------------------------------------------------------
+  # elementwise_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # Elementwise floating-point/integer operations; CUDA, >= 2 ranks.
+  # numel determines the one-dimensional tensor size; there is no shapes field.
+  elementwise_quick:
+    enabled: true  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of tensor elements (not bytes).
+      # Preset default: 65536
+      numel: 65536
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+      # Integer >= 1; length of the elementwise operation chain.
+      # Preset default: 1
+      chain_steps: 1
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64.
+      # Preset default: ["float32", "bfloat16"]
+      dtypes: ["float32", "bfloat16"]
+      # Nonempty list without duplicates; choices: int32 | int64.
+      # Preset default: ["int64"]
+      integer_dtypes: ["int64"]
+
+  # ----------------------------------------------------------------------
+  # flash_attention
+  # Explicit Dao-AILab FA2/3/4; FA4-only debugger: src_test/fa_test.py.
+  # NVIDIA CUDA, >= 2 ranks; >= 3 ranks allow strict-majority outlier attribution.
+  # Same GPU model and distinct GPU UUIDs required. A two-rank mismatch is ambiguous.
+  # Compares each generation independently across GPUs, never FA2 versus FA3/FA4.
+  # Missing packages/kernels/deterministic backward support produce ERROR, no fallback.
+  # FA4 may JIT-compile on first use: allow enough job_timeout for compilation.
+  # Shape and GPU-architecture support depend on the installed generation/build.
+  # Dropout is fixed at zero. Backward explicitly requests deterministic kernels.
+  # Full output bytes, gradients, shared inputs and GPU input readbacks are checked.
+  # Majority disagreement is evidence to investigate, not proof of faulty hardware;
+  # numerical overflow, kernel bugs or residual nondeterminism can also cause failures.
+  flash_attention:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with overrides, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    environment: {}  # Optional child environment overrides; same rules as above.
+    settings:
+      # Nonempty unique subset of integers 2 | 3 | 4. FA1 is not supported.
+      # Only selected versions are imported; selecting [2, 4] does not require FA3.
+      # Preset default: [2, 3, 4]
+      fa_versions: [2, 3, 4]
+      # Nonempty list of unique positive [batch, sequence, heads, head_dim] integer tuples.
+      # Q, K and V have equal shapes. Layout differs from PyTorch SDPA's head-first layout.
+      # Kernel support imposes additional head_dim/sequence/device constraints at runtime.
+      # The default eight shapes match the standalone FA4 validation matrix:
+      # tiny/aligned/partial sequence tiles and head dimensions 64, 96, 128, 256.
+      shapes: [[1, 1, 1, 64], [1, 128, 2, 64], [1, 129, 2, 64], [2, 256, 4, 64],
+               [2, 512, 4, 64], [1, 257, 2, 96], [2, 256, 4, 128], [1, 128, 2, 256]]
+      # Nonempty unique subset: float16 | bfloat16 (optional torch. prefix accepted).
+      # Preset default: [float16, bfloat16]
+      dtypes: [float16, bfloat16]
+      # Nonempty unique boolean list: [false], [true] or [false, true].
+      # Preset default: [false, true]
+      causal_modes: [false, true]
+      # Nonempty unique subset: normal | uniform | zeros.
+      # normal: seeded standard normal samples multiplied by input_scale.
+      # uniform: seeded samples in [-input_scale, input_scale).
+      # zeros: all-zero Q/K/V; lower coverage, useful as an additional case.
+      # Rank 0 creates CPU data once and broadcasts its bytes to every rank.
+      # Inputs are reused across generations/causal modes for the same case.
+      # Preset default: [normal]
+      data_patterns: [normal]
+      # Finite number > 0; multiplier for Q/K/V. Excessive values may overflow.
+      # The upstream gradient is always seeded normal data scaled by 0.125.
+      # Preset default: 0.25
+      input_scale: 0.25
+      # Integer >= 1; independent input batches per shape/pattern/dtype and run().
+      # Distinct from run.repeats, which reruns the entire experiment.
+      # Preset default: 1
+      iterations: 1
+      # true: check forward output and dq/dk/dv. false: forward output only.
+      # true requires deterministic=True support in each installed interface.
+      # Preset default: true
+      backward: true
+      # auto | direct | original. Applies only when FA4 and backward are selected.
+      # auto: use direct PTX LSE/dPsum bulk loads on SM90 (H100/H200), original
+      #       FA4 behavior on other GPU architectures. Preset default: auto.
+      # direct: require SM90 and enable the same workaround; ERROR on other GPUs.
+      # original: use the installed FA4 backward unchanged (may reproduce the hang).
+      # Forward and all attention/gradient computation still use the selected FA.
+      # Direct mode uses an isolated in-memory backward JIT cache, reused across
+      # cases/repeats; no patched kernel is read from or exported to the disk cache.
+      # Incompatible helpers or an unused replacement produce ERROR, no fallback.
+      # The setting is included in run metadata; verbose logs show resolved mode.
+      fa4_stat_loads: auto
+
+  # ----------------------------------------------------------------------
+  # fused_attention
+  # CUDA FlashAttention; >= 2 ranks. No fallback to CPU/math kernels.
+  # Tensor shape: [batch_size, heads, length, head_dim]. All combinations
+  # of lengths, head_dims, causal_modes and dtypes are tested.
+  # Kernel/GPU/PyTorch support imposes additional constraints on valid shapes;
+  # not every positive head_dim is supported by the installed Flash kernel.
+  fused_attention:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of sequences per batch.
+      # Preset default: 2
+      batch_size: 2
+      # Integer >= 1; number of attention heads; width % heads == 0 for transformers.
+      # Preset default: 4
+      heads: 4
+      # Nonempty list of unique integers >= 1; sequence lengths.
+      # Preset default: [128, 512]
+      lengths: [128, 512]
+      # Nonempty list of unique integers >= 1; dimension per head; see the kernel note above.
+      # Preset default: [64, 128]
+      head_dims: [64, 128]
+      # Nonempty list without duplicates from true | false; [false], [true] or [false, true].
+      # Preset default: [false, true]
+      causal_modes: [false, true]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 2
+      iterations: 2
+      # Nonempty list without duplicates; choices: float16 | bfloat16.
+      # Preset default: ["float16", "bfloat16"]
+      dtypes: ["float16", "bfloat16"]
+
+  # ----------------------------------------------------------------------
+  # fused_attention_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # CUDA FlashAttention; >= 2 ranks. No fallback to CPU/math kernels.
+  # Tensor shape: [batch_size, heads, length, head_dim]. All combinations
+  # of lengths, head_dims, causal_modes and dtypes are tested.
+  # Kernel/GPU/PyTorch support imposes additional constraints on valid shapes;
+  # not every positive head_dim is supported by the installed Flash kernel.
+  fused_attention_quick:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of sequences per batch.
+      # Preset default: 2
+      batch_size: 2
+      # Integer >= 1; number of attention heads; width % heads == 0 for transformers.
+      # Preset default: 4
+      heads: 4
+      # Nonempty list of unique integers >= 1; sequence lengths.
+      # Preset default: [128]
+      lengths: [128]
+      # Nonempty list of unique integers >= 1; dimension per head; see the kernel note above.
+      # Preset default: [64]
+      head_dims: [64]
+      # Nonempty list without duplicates from true | false; [false], [true] or [false, true].
+      # Preset default: [false, true]
+      causal_modes: [false, true]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+      # Nonempty list without duplicates; choices: float16 | bfloat16.
+      # Preset default: ["bfloat16"]
+      dtypes: ["bfloat16"]
+
+  # ----------------------------------------------------------------------
+  # indexing
+  # Index/gather/scatter tests; CUDA, >= 2 ranks.
+  # shapes are 2D; int32 requires rows*columns < 2147483648.
+  indexing:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Nonempty list of unique [rows, columns] pairs; both integers >= 1.
+      # Preset default: [[257, 511], [1024, 1024]]
+      shapes: [[257, 511], [1024, 1024]]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 2
+      iterations: 2
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64 | int32 | int64.
+      # Preset default: ["float32", "float16", "bfloat16", "int64"]
+      dtypes: ["float32", "float16", "bfloat16", "int64"]
+
+  # ----------------------------------------------------------------------
+  # indexing_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # Index/gather/scatter tests; CUDA, >= 2 ranks.
+  # shapes are 2D; int32 requires rows*columns < 2147483648.
+  indexing_quick:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Nonempty list of unique [rows, columns] pairs; both integers >= 1.
+      # Preset default: [[127, 257]]
+      shapes: [[127, 257]]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64 | int32 | int64.
+      # Preset default: ["int64"]
+      dtypes: ["int64"]
+
+  # ----------------------------------------------------------------------
+  # local_reductions
+  # Local reductions/normalization; CUDA, >= 2 ranks.
+  # Tensor shape per case: [rows, width]; all widths/dtypes are tested.
+  local_reductions:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of rows.
+      # Preset default: 64
+      rows: 64
+      # Nonempty list of unique integers >= 1; number of columns per test case.
+      # Preset default: [127, 1024, 4097]
+      widths: [127, 1024, 4097]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 3
+      iterations: 3
+      # Finite number > 0; stabilization for normalizations, e.g. 0.00001.
+      # Preset default: 0.00001
+      eps: 0.00001
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64.
+      # Preset default: ["float32", "float16", "bfloat16", "float64"]
+      dtypes: ["float32", "float16", "bfloat16", "float64"]
+
+  # ----------------------------------------------------------------------
+  # local_reductions_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # Local reductions/normalization; CUDA, >= 2 ranks.
+  # Tensor shape per case: [rows, width]; all widths/dtypes are tested.
+  local_reductions_quick:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; number of rows.
+      # Preset default: 16
+      rows: 16
+      # Nonempty list of unique integers >= 1; number of columns per test case.
+      # Preset default: [1024]
+      widths: [1024]
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+      # Finite number > 0; stabilization for normalizations, e.g. 0.00001.
+      # Preset default: 0.00001
+      eps: 0.00001
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64.
+      # Preset default: ["float32"]
+      dtypes: ["float32"]
+
+  # ----------------------------------------------------------------------
+  # mem_pat
+  # Alternative, standalone memory-pattern implementation (SDCChecks).
+  # Same settings as memory_patterns. Through the controller: CUDA with >= 2 ranks;
+  # internal CPU/Gloo logic tests are not an additional controller operating mode.
+  # Fixed int64 format; no dtypes/shapes/chunk_bytes option.
+  mem_pat:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; total size of both buffers in MiB (1 MiB = 1048576 bytes).
+      # Preset default: 4096
+      memory_mib: 4096
+      # Integer >= 1; processing/comparison chunk size in MiB.
+      # Preset default: 16
+      chunk_mib: 16
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 2
+      iterations: 2
+      # Finite number >= 0; time to retain the pattern before reading, in seconds.
+      # Preset default: 0.0
+      retention_seconds: 0.0
+      # Nonempty list without duplicates; choices: zeros | ones | alternating | index | walking_bit | random.
+      # Preset default: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+      patterns: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+
+  # ----------------------------------------------------------------------
+  # memory_patterns
+  # Exact 64-bit memory patterns; CUDA, >= 2 ranks.
+  # Fixed int64 format; no dtypes/shapes option.
+  # Memory for BOTH source and copy; additional test/framework overhead is required.
+  memory_patterns:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; total size of both buffers in MiB (1 MiB = 1048576 bytes).
+      # Preset default: 4096
+      memory_mib: 4096
+      # Integer >= 1; processing/comparison chunk size in MiB.
+      # Preset default: 16
+      chunk_mib: 16
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 2
+      iterations: 2
+      # Finite number >= 0; time to retain the pattern before reading, in seconds.
+      # Preset default: 0.0
+      retention_seconds: 0.0
+      # Nonempty list without duplicates; choices: zeros | ones | alternating | index | walking_bit | random.
+      # Preset default: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+      patterns: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+
+  # ----------------------------------------------------------------------
+  # memory_patterns_quick
+  # Quick preset: same available options as the full version, with smaller defaults.
+  # Exact 64-bit memory patterns; CUDA, >= 2 ranks.
+  # Fixed int64 format; no dtypes/shapes option.
+  # Memory for BOTH source and copy; additional test/framework overhead is required.
+  memory_patterns_quick:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; total size of both buffers in MiB (1 MiB = 1048576 bytes).
+      # Preset default: 384
+      memory_mib: 384
+      # Integer >= 1; processing/comparison chunk size in MiB.
+      # Preset default: 16
+      chunk_mib: 16
+      # Integer >= 1; inner iterations per run(), in addition to run.repeats.
+      # Preset default: 1
+      iterations: 1
+      # Finite number >= 0; time to retain the pattern before reading, in seconds.
+      # Preset default: 0.0
+      retention_seconds: 0.0
+      # Nonempty list without duplicates; choices: zeros | ones | alternating | index | walking_bit | random.
+      # Preset default: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+      patterns: ["zeros", "ones", "alternating", "index", "walking_bit", "random"]
+
+  # ----------------------------------------------------------------------
+  # mgpu
+  # Small matmul/replica comparison; CUDA and >= 2 ranks.
+  # Shared runner default: float32; no dtypes field.
+  mgpu:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer; use >= 1 for meaningful tests; matmul shape [size, size]. No explicit range check in the module.
+      # Preset default: 100
+      size: 100
+
+  # ----------------------------------------------------------------------
+  # transformer
+  # Small FP32 transformer; CPU (nproc_per_node: 1) or CUDA.
+  # No dtypes, weight_decay or adam_eps option in this module.
+  # For meaningful, passing training checks, use positive dimensions and
+  # learning_rate > 0; width must be divisible by heads.
+  transformer:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; training/optimizer steps per run().
+      # Preset default: 5
+      steps: 5
+      # Integer >= 1; number of sequences per batch.
+      # Preset default: 2
+      batch_size: 2
+      # Integer >= 1; sequence length.
+      # Preset default: 16
+      length: 16
+      # Integer; use >= 2 for this template (transformer_tp enforces >= 2).
+      # Preset default: 64
+      vocab_size: 64
+      # Integer >= 1; model width, must be divisible by heads.
+      # Preset default: 32
+      width: 32
+      # Integer >= 1; number of attention heads; width % heads == 0 for transformers.
+      # Preset default: 2
+      heads: 2
+      # Finite number > 0 for parameter updates; TP enforces > 0.
+      # Preset default: 0.001
+      learning_rate: 0.001
+
+  # ----------------------------------------------------------------------
+  # transformer_tp
+  # Tensor parallelism TP=2 with independent replicas on ONE node.
+  # CUDA, even rank count >= 4; requires Gloo and distinct GPU UUIDs.
+  # heads must be even, width divisible by heads, vocab_size >= 2.
+  # Native FP16 AdamW: adam_eps >= 0.00006103515625 when float16 is selected.
+  transformer_tp:
+    enabled: false  # true | false; enable/disable execution.
+    # Optional: replace {} with the overrides you need, e.g.:
+    # run:
+    #   seed: 12345       # Integer 0..9223372036854775807; otherwise controller.seed.
+    #   threads: 1        # Integer >= 1; otherwise controller.threads.
+    #   repeats: 2        # Integer >= 1; otherwise controller.repeats.
+    #   job_timeout: 0    # Seconds >= 0; 0 = disabled; otherwise controller.job_timeout.
+    run: {}
+    # Optional environment overrides for this experiment job only.
+    # Same name/value rules as in the global environment section.
+    # Example for allreduce: environment: {NCCL_INSPECTOR_ENABLE: "1"}
+    environment: {}
+    settings:
+      # Integer >= 1; training/optimizer steps per run().
+      # Preset default: 5
+      steps: 5
+      # Integer >= 1; number of sequences per batch.
+      # Preset default: 2
+      batch_size: 2
+      # Integer >= 1; sequence length.
+      # Preset default: 16
+      length: 16
+      # Integer; use >= 2 for this template (transformer_tp enforces >= 2).
+      # Preset default: 64
+      vocab_size: 64
+      # Integer >= 1; model width, must be divisible by heads.
+      # Preset default: 32
+      width: 32
+      # Even integer >= 2; width must be divisible by heads (TP=2).
+      # Preset default: 2
+      heads: 2
+      # Finite number > 0 for parameter updates; TP enforces > 0.
+      # Preset default: 0.001
+      learning_rate: 0.001
+      # Finite number >= 0; AdamW weight decay.
+      # Preset default: 0.01
+      weight_decay: 0.01
+      # Finite number > 0; AdamW stabilization; see the FP16 lower bound above.
+      # Preset default: 0.0001
+      adam_eps: 0.0001
+      # Nonempty list without duplicates; choices: float32 | float16 | bfloat16 | float64.
+      # Preset default: ["float32", "float16", "bfloat16", "float64"]
+      dtypes: ["float32", "float16", "bfloat16", "float64"]

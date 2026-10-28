@@ -1,0 +1,9 @@
+__pycache__/
+*__pycache__/*
+*.pyc
+.venv/
+runs/
+profiles/
+slurmlogs/
+images/**.sqsh
+images/inspector/

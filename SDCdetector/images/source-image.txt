@@ -1,0 +1,1 @@
+docker://nvcr.io#nvidia/pytorch@sha256:b70bc3ff73fae58e7ec326849b4726eac04200d9ec1da2b385f94c9f7775971f

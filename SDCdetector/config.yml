@@ -1,0 +1,99 @@
+version: 1
+controller:
+  logging: minimum              # zero | minimum | verbose
+  output: runs/suite             # relative to this file; sbatch overrides to /results/suite
+  device: cuda
+  nproc_per_node: 8              # must fit the sbatch GPU allocation
+  seed: 12345
+  threads: 1
+  repeats: 2
+  job_timeout: 0                # seconds per experiment; 0 disables timeout
+  api_host: 0.0.0.0
+  api_port: 9100
+  api_linger: 30
+
+# Applied to child jobs only. Per-experiment environment entries override these.
+environment: {}
+
+# Mapping order determines execution order. Omitted fields retain module defaults.
+# Settings are the fields of each experiment's dataclass, not a shared GPU schema.
+experiments:
+  elementwise_quick:
+    enabled: true
+    settings:
+      numel: 65536
+      iterations: 1
+      chain_steps: 1
+      dtypes: [float32, bfloat16]
+      integer_dtypes: [int64]
+  indexing_quick:
+    enabled: false
+    run:
+      repeats: 2
+    settings:
+      shapes: [[127, 257], [256, 512]]
+      iterations: 1
+      dtypes: [int64]
+  # Independent Dao-AILab experiments; each gets a separate controller job.
+  fa2:
+    enabled: true
+    settings:
+      # [batch, sequence, heads, head_dim]; independent of other FA experiments.
+      shapes: [[1, 1, 1, 64], [1, 128, 2, 64], [1, 129, 2, 64], [2, 256, 4, 64],
+               [2, 512, 4, 64], [1, 257, 2, 96], [2, 256, 4, 128], [1, 128, 2, 256]]
+      dtypes: [float16, bfloat16]
+      causal_modes: [false, true]
+      data_patterns: [normal]
+      input_scale: 0.25
+      iterations: 1
+      backward: true
+  # FA3: head_dim=256 deterministic backward is unsupported in the supplied build.
+  fa3:
+    enabled: true
+    settings:
+      # [batch, sequence, heads, head_dim]; independent of other FA experiments.
+      shapes: [[1, 1, 1, 64], [1, 128, 2, 64], [1, 129, 2, 64], [2, 256, 4, 64],
+               [2, 512, 4, 64], [1, 257, 2, 96], [2, 256, 4, 128]]
+      dtypes: [float16, bfloat16]
+      causal_modes: [false, true]
+      data_patterns: [normal]
+      input_scale: 0.25
+      iterations: 1
+      backward: true
+  fa4:
+    enabled: true
+    settings:
+      # [batch, sequence, heads, head_dim]; independent of other FA experiments.
+      shapes: [[1, 1, 1, 64], [1, 128, 2, 64], [1, 129, 2, 64], [2, 256, 4, 64],
+               [2, 512, 4, 64], [1, 257, 2, 96], [2, 256, 4, 128], [1, 128, 2, 256]]
+      dtypes: [float16, bfloat16]
+      causal_modes: [false, true]
+      data_patterns: [normal]
+      input_scale: 0.25
+      iterations: 1
+      backward: true
+      workaround: true  # SM90 (H100/H200) only; set false on Blackwell.
+  fused_attention_quick:
+    enabled: false
+    settings:
+      batch_size: 2
+      heads: 4
+      lengths: [128]
+      head_dims: [64]
+      causal_modes: [false, true]
+      dtypes: [bfloat16]
+  memory_patterns_quick:
+    enabled: false
+    settings:
+      memory_mib: 384
+      chunk_mib: 16
+      patterns: [zeros, ones, alternating, index, walking_bit, random]
+  transformer:
+    enabled: false
+    settings:
+      steps: 5
+      batch_size: 2
+      length: 16
+      width: 32
+      heads: 2
+      learning_rate: 0.001
